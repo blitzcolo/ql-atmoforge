@@ -1,0 +1,40 @@
+{
+  "modtran": {
+    "exe":      "${MODTRAN_EXE:-D:/guangdiantance/modtran/MOD4v1r1.EXE}",
+    "data_dir": "${MODTRAN_DATA:-D:/guangdiantance/modtran/Data}",
+    "timeout_s": 300,
+    "link_mode": "auto"
+  },
+  "run": {
+    "out_dir": "out/lwir_horiz_demo",
+    "workers": 2,
+    "seed": 42,
+    "n_samples": 16,
+    "sampler": "random",
+    "csv_preview": 2
+  },
+  "band": { "preset": "lwir" },
+  "path_type": "horizontal",
+  "fixed": {
+    "iday": 93,
+    "ldown_zenith_deg": 45.0
+  },
+  "sampled": {
+    "atmos_model":         { "values": [1, 2, 3, 4, 5, 6] },
+    "ihaze":               { "values": [1, 2, 4, 5, 8, 9, 10] },
+    "icld":                { "values": [0, 5, 6, 18] },
+    "vis_km":              { "log_uniform": [0.5, 50.0] },
+    "rainrt_mm_h":         { "uniform": [0.0, 50.0] },
+    "t_ground_K":          { "uniform": [230.0, 320.0] },
+    "rh":                  { "uniform": [0.05, 1.0] },
+    "p_hPa":               { "uniform": [800.0, 1050.0] },
+    "h2o_scale":           { "uniform": [0.5, 2.0] },
+    "o3_scale":            { "uniform": [0.5, 1.5] },
+    "co2_ppmv":            { "uniform": [330.0, 450.0] },
+    "h1_km":               { "uniform": [0.5, 10.0] },
+    "range_km":            { "log_uniform": [0.1, 20.0] },
+    "sun_zenith_deg":      { "uniform": [0.0, 85.0] },
+    "sun_rel_azimuth_deg": { "uniform": [-180.0, 180.0] }
+  },
+  "columns": "all"
+}
