@@ -1,7 +1,7 @@
 # ql-atmoforge — MODTRAN 4 大气数据生成器
 
 批量产出 **(输入参数向量 → 大气光谱量)** 样本对，作为下游深度学习代理模型的训练集。
-独立于主项目，C++17 + CMake，Windows / Linux 双端；MODTRAN 二进制按安装路径调用，不复制。
+独立于主项目 Quantiloom，C++17 + CMake，Windows / Linux 双端；MODTRAN 二进制按安装路径调用，不复制。
 
 每个样本 = 一组大气/几何/太阳条件，按波段跑 2–3 次 MODTRAN：
 
