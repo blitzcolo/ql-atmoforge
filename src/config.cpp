@@ -53,8 +53,8 @@ static BandSpec band_preset(const std::string& name) {
     BandSpec b;
     b.name = name;
     if      (name == "vis")      { b.v1_cm = 12500; b.v2_cm = 25000; b.thermal = false; }
-    else if (name == "nir1064")  { b.v1_cm =  8333; b.v2_cm = 10753; b.thermal = false; }
-    else if (name == "swir1535") { b.v1_cm =  6061; b.v2_cm =  7143; b.thermal = false; }
+    else if (name == "nir")  { b.v1_cm =  8333; b.v2_cm = 10753; b.thermal = false; }
+    else if (name == "swir") { b.v1_cm =  4167; b.v2_cm =  7143; b.thermal = false; }
     else if (name == "mwir")     { b.v1_cm =  2000; b.v2_cm =  3333; b.thermal = true;  }
     else if (name == "lwir")     { b.v1_cm =   833; b.v2_cm =  1250; b.thermal = true;  }
     else throw std::runtime_error("config: unknown band preset: " + name);

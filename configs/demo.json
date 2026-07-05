@@ -1,7 +1,7 @@
 {
   "modtran": {
-    "exe":      "${MODTRAN_EXE:-D:/guangdiantance/modtran/MOD4v1r1.EXE}",
-    "data_dir": "${MODTRAN_DATA:-D:/guangdiantance/modtran/Data}",
+    "exe":      "${MODTRAN_EXE:-C:/path/to/MOD4v1r1.EXE}",
+    "data_dir": "${MODTRAN_DATA:-C:/path/to/Data}",
     "timeout_s": 300,
     "link_mode": "auto"
   },
