@@ -62,27 +62,54 @@ std::string tape5_text(const SampleParams& p, const BandSpec& band,
 
     // CARD 2C/2C1: full 0-100 km altitude grid so MODEL=7 has a complete
     // atmosphere (a truncated profile makes MODTRAN treat the top level as
-    // TOA -> FATAL on upward paths). Only the GROUND level carries the
-    // T/RH/P override (JCHAR='AAH'); every other level has blank JCHAR and
-    // inherits the model atmosphere. h1 is inserted so path endpoints sit on
-    // a level. NOTE: this is a deliberate fix over the legacy code, which put
-    // the override at h1 -- wrong semantics for slant paths, where the
-    // weather knobs describe conditions at the ground, not at the sensor.
+    // TOA -> FATAL on upward paths). Levels with blank JCHAR inherit the
+    // model atmosphere. h1 is inserted so path endpoints sit on a level.
+    // T/RH/P override (JCHAR='AAH') placement is per path type:
+    //  - slant: at the GROUND (z=0) only, where the path terminates -- the
+    //    weather knobs describe conditions at the ground, not at the sensor.
+    //  - horizontal: at BOTH z=0 and h1, as an isothermal surface layer with
+    //    hydrostatic pressure at h1. Both levels are load-bearing:
+    //      * z=0 alone is invisible to the path -- the h1 level inherits the
+    //        model atmosphere and nothing traverses [0, h1), so the weather
+    //        knobs have no effect at all (measured: RH 78% -> 5% moved mean
+    //        LWIR tau by 4e-6 with the override at z=0 only, vs 0.36 -> 0.70
+    //        with it at h1).
+    //      * h1 alone leaves model air at z=0 under the overridden h1, up to
+    //        a ~140 K/km artificial inversion -- a super-refractive duct at
+    //        path altitude that makes the LOS geometry iteration diverge.
+    //      * equal P on both levels is rejected outright (non-monotonic), so
+    //        h1 takes the barometric value for the sampled ground pressure.
+    //    Verified against MOD4v1r1 on all 24 archived geometry failures:
+    //    24/24 converge with this layer, 22/24 without it.
+    // h1 is snapped to the F10.3 print quantum BEFORE it is used anywhere:
+    // the tape5 carries 3 decimals, so an unrounded h1 within half a quantum
+    // of a grid level (h1=0.0002 vs ground, h1=1.0004 vs the 1 km level)
+    // passes the exact-match test here yet prints as a DUPLICATE altitude,
+    // and MODTRAN dies in the zero-thickness layer. All 49 residual failures
+    // in the first full lwir_ground_v1 run were h1 < 0.0005 km hitting this.
+    const double h1_km = std::round(p.h1_km * 1000.0) / 1000.0;
     static const double kGridKm[] = {0, 1, 2, 3, 5, 8, 10, 15, 20, 25, 30, 40, 50, 70, 100};
     constexpr double EPS = 1e-6;
     std::vector<double> levels(std::begin(kGridKm), std::end(kGridKm));
     bool have_h1 = false;
     for (double z : levels)
-        if (std::fabs(z - p.h1_km) <= EPS) have_h1 = true;
-    if (!have_h1) levels.push_back(p.h1_km);
+        if (std::fabs(z - h1_km) <= EPS) have_h1 = true;
+    if (!have_h1) levels.push_back(h1_km);
     std::sort(levels.begin(), levels.end());
 
-    t += strf("%5d%5d%5d%s\n", (int)levels.size(), 0, 0, "GROUND T/P/RH OVERRIDE");
+    const bool horiz = (pt == PathType::Horizontal);
+    // barometric pressure at h1, isothermal scale height H = R*T/(M*g)
+    const double p_h1_hPa =
+        p.p_hPa * std::exp(-h1_km / (0.02927 * p.t_ground_K));
+    t += strf("%5d%5d%5d%s\n", (int)levels.size(), 0, 0, "T/P/RH OVERRIDE");
     for (size_t i = 0; i < levels.size(); ++i) {
-        if (i == 0) {
+        const bool at_ground = std::fabs(levels[i]) <= EPS;
+        const bool at_h1 = horiz && std::fabs(levels[i] - h1_km) <= EPS;
+        if (at_ground || at_h1) {
             // ZM P T WMOL(1..3) JCHAR: 'A'=mb, 'A'=K, 'H'=WMOL(1) is RH%
             t += strf("%10.3f%10.3f%10.3f%10.3f%10.3f%10.3f%-14s %c\n",
-                      levels[i], p.p_hPa, p.t_ground_K, p.rh * 100.0,
+                      levels[i], at_ground ? p.p_hPa : p_h1_hPa,
+                      p.t_ground_K, p.rh * 100.0,
                       0.0, 0.0, "AAH", ' ');
         } else {
             t += strf("%10.3f%10.3f%10.3f%10.3f%10.3f%10.3f%-14s %c\n",
@@ -94,14 +121,24 @@ std::string tape5_text(const SampleParams& p, const BandSpec& band,
     double h1, h2, angle, range;
     if (rk == RunKind::Ldown) {
         // downwelling sky radiance at the TARGET position, looking up
-        h1 = (pt == PathType::SlantToGround) ? 0.0 : p.h1_km;
+        h1 = (pt == PathType::SlantToGround) ? 0.0 : h1_km;
         h2 = 100.0;
         angle = p.ldown_zenith_deg;
         range = 0.0;
     } else if (pt == PathType::Horizontal) {
-        h1 = p.h1_km; h2 = p.h1_km; angle = 90.0; range = p.range_km;
+        // 89.5, not 90: an exactly horizontal near-ground ray is its own
+        // tangent point, and MODTRAN's refracted-geometry iteration
+        // (FNDHMN/FITRNG) fails to converge on it for ~4% of samples. The
+        // alternatives are closed -- GEOINP rejects ITYPE=1 whenever
+        // IEMSCT=2, and the (H1,H2,BETA) spec dies in the same iteration.
+        // A 0.5 deg up-tilt (rise = range/115, 175 m over the 20 km max
+        // range) keeps the geometric slope well above any refractive
+        // bending, so the iteration stays conditioned; tau still matches the
+        // ITYPE=1 homogeneous-path truth to ~1e-3. H2 is left 0 so MODTRAN
+        // derives it (CASE 2B) and tau/lpath share one exact path.
+        h1 = h1_km; h2 = 0.0; angle = 89.5; range = p.range_km;
     } else {
-        h1 = p.h1_km; h2 = 0.0; angle = p.view_zenith_deg; range = 0.0;
+        h1 = h1_km; h2 = 0.0; angle = p.view_zenith_deg; range = 0.0;
     }
     t += strf("%10.3f%10.3f%10.3f%10.3f%10.3f%10.3f%5d%s%10.3f\n",
               h1, h2, angle, range, 0.0, 0.0, 0, "     ", 0.0);

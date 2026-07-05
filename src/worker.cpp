@@ -75,9 +75,10 @@ void archive_failure(const fs::path& out_dir, const fs::path& wdir,
         if (fs::exists(wdir / (prefix + suf), ec))
             fs::copy_file(wdir / (prefix + suf), dst / (kind + std::string(suf)),
                           fs::copy_options::overwrite_existing, ec);
-    fs::path log = wdir / (std::string("run_") + kind + ".log");
+    fs::path log = wdir / (prefix + kind + ".log");
     if (fs::exists(log, ec))
-        fs::copy_file(log, dst / log.filename(), fs::copy_options::overwrite_existing, ec);
+        fs::copy_file(log, dst / (kind + std::string(".log")),
+                      fs::copy_options::overwrite_existing, ec);
 
     json e;
     e["index"] = index;
@@ -258,7 +259,11 @@ private:
             tp5 << tape5_text(p, cfg_.band, cfg_.path_type, blk.kind);
             if (!tp5) return "cannot write " + prefix + ".tp5 in " + wdir.string();
         }
-        fs::path log = wdir / (std::string("run_") + run_kind_name(blk.kind) + ".log");
+        // log name carries the run prefix for the same reason the MODTRAN
+        // outputs do (see run_prefix): reusing "run_<kind>.log" across runs
+        // hits Windows delete-pending races while a scanner holds the old
+        // handle -- observed as "cannot open log file" failures.
+        fs::path log = wdir / (prefix + run_kind_name(blk.kind) + ".log");
         RunResult rr = run_process(cfg_.exe, wdir, log, cfg_.timeout_s);
         if (rr.status == RunResult::StartFailed || rr.status == RunResult::Timeout)
             return rr.message;

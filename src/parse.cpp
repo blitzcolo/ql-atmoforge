@@ -180,6 +180,22 @@ Spectrum parse_tape7_radiance(std::istream& in) {
 
 // ---------------------------------------------------------------- tape6 --
 
+// MODTRAN wraps diagnostics across lines ("...THE LIQUID WATER DROPLET
+// DENSITY" / "IS POSITIVE [0.15 GM/M3] EVEN THOUGH..."); capturing only the
+// matched line drops the half of the message that says what happened. Pull
+// in indented continuation lines until a blank or a new left-margin block.
+static std::string with_continuations(const std::vector<std::string>& lines,
+                                      size_t i) {
+    std::string msg = lines[i];
+    for (size_t j = i + 1; j < lines.size() && j < i + 4; ++j) {
+        const std::string& n = lines[j];
+        if (n.empty() || n.find_first_not_of(' ') == std::string::npos) break;
+        if (n.find_first_not_of(' ') < 6) break;  // new left-margin block
+        msg += " " + n.substr(n.find_first_not_of(' '));
+    }
+    return msg;
+}
+
 Tape6Status check_tape6(const fs::path& tp6) {
     Tape6Status st;
     std::ifstream f(tp6);
@@ -187,19 +203,22 @@ Tape6Status check_tape6(const fs::path& tp6) {
         st.first_error = "tape6 missing: " + tp6.string();
         return st;
     }
+    std::vector<std::string> lines;
     std::string line;
-    while (std::getline(f, line)) {
-        std::string l = rstrip(line);
+    while (std::getline(f, line)) lines.push_back(rstrip(line));
+    for (size_t i = 0; i < lines.size(); ++i) {
+        const std::string& l = lines[i];
         if (l.find("CARD 5") != std::string::npos) st.success = true;
         if (l.find("FATAL") != std::string::npos ||
             l.find("Error") != std::string::npos ||
             l.find("ERROR") != std::string::npos) {
-            if (st.first_error.empty()) st.first_error = l;
+            if (st.first_error.empty())
+                st.first_error = with_continuations(lines, i);
         }
         if ((l.find("WAS RESET") != std::string::npos ||
              l.find("WARNING") != std::string::npos) &&
             st.warnings.size() < 10)
-            st.warnings.push_back(l);
+            st.warnings.push_back(with_continuations(lines, i));
     }
     if (!st.success && st.first_error.empty())
         st.first_error = "tape6 ended without CARD 5 marker";
