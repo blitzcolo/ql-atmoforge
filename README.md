@@ -88,7 +88,7 @@ export MODTRAN_DATA=C:/path/to/Data
 | `icld` | 云/雨：0 无 / 1–10 水云（**6 = 雨模型**）/ 18,19 卷云 | {0..10,18,19} | 0 |
 | `vis_km` | 能见度 [km]；0 = 用 IHAZE 内置默认 | [0, 300] | 0 |
 | `rainrt_mm_h` | 降雨率 [mm/h]；**仅 icld=6 时生效，否则自动钳 0**（条件维度） | [0, 100] | 0 |
-| `t_ground_K` | 地面温度 [K]（写入廓线最低层，JCHAR='AAH'） | [200, 340] | 288.15 |
+| `t_ground_K` | 地面/近地层空气温度 [K]（覆盖层写法随路径类型不同，见坑 #5） | [200, 340] | 288.15 |
 | `rh` | 地面相对湿度 | [0, 1] | 0.5 |
 | `p_hPa` | 地面气压 [hPa] | [500, 1100] | 1013.25 |
 | `h2o_scale` | 整柱水汽缩放因子（Card 1A H2OSTR） | [0.01, 10] | 1.0 |
@@ -98,7 +98,7 @@ export MODTRAN_DATA=C:/path/to/Data
 | `range_km` | 路径长度 [km]；**仅 horizontal 可采样** | [0.001, 1000] | 1.0 |
 | `view_zenith_deg` | 观测天顶角 [°]，>90 = 向下看；**仅 slant 可采样** | (90, 180] | 180 |
 | `sun_zenith_deg` | 太阳天顶角 [°]（IPARM=2，辐亮度运行用） | [0, 89.9] | 45 |
-| `sun_rel_azimuth_deg` | 视线→太阳相对方位角 [°]，北偏东为正 | [-180, 180] | 0 |
+| `sun_rel_azimuth_deg` | 视线→太阳相对方位角 [°]，北偏东为正（固定时勿与视线共线，见坑 #7） | [-180, 180] | 90 |
 | `iday` | 年内日序（只影响日地距离），一般固定 | [1, 365] | 93 |
 | `ldown_zenith_deg` | ldown 运行的仰视天顶角 [°]，一般固定 | [0, 89.9] | 45 |
 
@@ -130,8 +130,10 @@ export MODTRAN_DATA=C:/path/to/Data
 
 ### 3.3 几何语义
 
-- **horizontal**：采样自由度 `(h1_km, range_km)`；天顶角恒 90°，H2=H1。
-  ldown（若有）在 h1 高度向上看。
+- **horizontal**：采样自由度 `(h1_km, range_km)`；天顶角写 **89.5° 微仰角而非 90°**——
+  精确水平的近地光线是自身的切点，MODTRAN 折射几何迭代对 ~4% 样本不收敛（坑 #8）。
+  89.5° 下 20 km 最远程仅爬升 175 m，τ 与 ITYPE=1 均匀路径真值差 ~1e-3；H2 留 0 由
+  MODTRAN 推导，tau/lpath 严格共用同一路径。ldown（若有）在 h1 高度向上看。
 - **slant_to_ground**（空对地）：采样自由度 `(h1_km, view_zenith_deg)`；H2≡0 是路径类型
   的定义。斜程长度由球面无折射几何派生并存进特征向量。天顶角低于擦地临界角时钳到
   临界值 +0.05°，**钳后值如实写进 tape5 和特征向量**（不产生 X/y 错配）。
@@ -208,7 +210,7 @@ y_tau = tau[good][:, i_tau, :]                    # [N_good, K]
 ```
 
 **status=1 (partial)** 表示光谱数据完整、但带 MODTRAN 警告（水柱超上限被内部截断、
-液态水滴密度截断等），警告全文在 `failures/<index>/warnings.txt`。取舍自定。
+过冷液态水提示等，见坑 #9），警告全文在 `failures/<index>/warnings.txt`。取舍自定。
 
 透过率 21 列：`TOTAL H2O CO2P O3 TRACE N2_CONT H2O_CONT MOLEC_SCAT AER HNO3 AER_AB
 LOG_TOTAL CO2 CO CH4 N2O O2 NH3 NO NO2 SO2`（H2O 是线吸收，H2O_CONT 是连续吸收）。
@@ -250,10 +252,26 @@ shard 文件，无锁无争用。`workers` 就是并发 MODTRAN 实例数，MODT
    `tau[:, i_TOTAL, :].max(-1) < 阈值` 过滤，或收窄 `vis_km` / `range_km` 的采样范围。
 4. **辐亮度表的空白字段**（如无多次散射时 `THRML_SCT` 整列）是 MODTRAN 打印精确零的
    方式。按定宽切列后记 0，不算缺数据、不打警告。
-5. **T/RH/P 覆盖在地面层**，不在传感器高度——气象旋钮描述的是地面天气。这是对主项目
-   旧实现的有意修正（旧代码注入 h1 层，对横程碰巧对，对斜程语义错误）。
+5. **T/RH/P 覆盖层按路径类型放置**。斜程：只写地面层（气象旋钮=地面天气，不在传感器
+   高度）。横程：写 **z=0 与 h1 双层**，等温、h1 层气压按气压公式递减（[0,h1] 混合面层）。
+   两层都不能省：只写地面层时旋钮完全无效——h1 层继承模式大气、路径不经过 [0,h1)，
+   实测 RH 78%→5% 只使平均 τ 变化 4e-6；只写 h1 层则在层下制造 ~140 K/km 的人工逆温
+   （超折射波导，打崩几何迭代）；两层等压会被 MODTRAN 以非单调气压直接拒绝。
 6. `h2o_scale` 缩放的是**整柱**水汽（含地面 RH 覆盖后的廓线），和 `rh` 不是一回事：
    `rh` 改地面层，`h2o_scale` 乘整列。两个都采样时注意组合可能触发水柱超限警告（partial）。
+7. **太阳与视线共线 = fatal**：辐亮度运行中散射角恰为 0°（太阳正落在视线上）时 MODTRAN
+   在 PHASEF 硬停（`Scattering angle is out of range`）。固定太阳几何时避免
+   `sun_zenith == ldown_zenith 且 rel_az=0` 这类共线组合（内置默认已取 rel_az=90 规避）；
+   采样配置撞上精确共线是零测度事件，无需处理。
+8. **近地水平路径不能用精确 90°**：MODTRAN 的折射几何求解器（FNDHMN/FITRNG）对
+   "光线切点即路径本身"的近地平几何随机不收敛，且 ITYPE=1（真水平模式）被 IEMSCT=2
+   拒绝、(H1,H2,BETA) 写法死在同一迭代里——横程因此统一用 89.5° 微仰角（§3.3）。
+   另外 h1 会先按 tape5 打印精度（1 m）吸附到廓线格点：距格点 <0.5 m 的 h1 会打印成
+   重复高度层（零厚度层，几何崩溃），别指望亚米级 h1 分辨率。
+9. **过冷水云警告**：低 `t_ground_K` × 液水云（icld 1–10）组合会触发
+   `LIQUID WATER DROPLET DENSITY IS POSITIVE EVEN THOUGH THE TEMPERATURE IS ...` 警告
+   （样本记 partial）。物理上真实存在（冬季过冷层云/积冰天气），MODTRAN 照常按液水
+   光学计算，数据有效，默认保留。
 
 ## 8. 目录结构与 CLI
 

@@ -33,7 +33,10 @@ const std::vector<ParamDesc>& param_table() {
         {"range_km",            false, 1.0,     0.001,  1000.0, {},                       SET(range_km),     GET(range_km)},
         {"view_zenith_deg",     false, 180.0,   90.0,   180.0,  {},                       SET(view_zenith_deg), GET(view_zenith_deg)},
         {"sun_zenith_deg",      false, 45.0,    0.0,    89.9,   {},                       SET(sun_zenith_deg), GET(sun_zenith_deg)},
-        {"sun_rel_azimuth_deg", false, 0.0,    -180.0,  180.0,  {},                       SET(sun_rel_azimuth_deg), GET(sun_rel_azimuth_deg)},
+        // default 90, not 0: with the default sun_zenith=45 and
+        // ldown_zenith=45, rel_az=0 puts the sun exactly on the ldown LOS --
+        // scattering angle 0 and a guaranteed PHASEF hard stop in MODTRAN
+        {"sun_rel_azimuth_deg", false, 90.0,   -180.0,  180.0,  {},                       SET(sun_rel_azimuth_deg), GET(sun_rel_azimuth_deg)},
         {"iday",                true,  93,      1,      365,    {},                       SETI(iday),        GET(iday)},
         {"ldown_zenith_deg",    false, 45.0,    0.0,    89.9,   {},                       SET(ldown_zenith_deg), GET(ldown_zenith_deg)},
     };
