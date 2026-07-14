@@ -8,7 +8,12 @@
 namespace ql_atmoforge {
 namespace fs = std::filesystem;
 
-enum class PathType { Horizontal, SlantToGround };
+// Horizontal: h1 -> h1, near-level view path (89.5 deg tilt, see tape5.cpp)
+// SlantToGround: h1 -> ground, downward view path, zenith in (90, 180]
+// Sky: h1 -> TOA (100 km), upward view path, zenith in [0, 90) -- the sky-dome
+//      radiance dataset for miss rays; lpath of this path IS the sky radiance,
+//      so the ldown run is never produced even for thermal bands
+enum class PathType { Horizontal, SlantToGround, Sky };
 const char* path_type_name(PathType pt);
 
 struct BandSpec {

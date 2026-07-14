@@ -14,7 +14,12 @@ using json = nlohmann::ordered_json;
 namespace ql_atmoforge {
 
 const char* path_type_name(PathType pt) {
-    return pt == PathType::Horizontal ? "horizontal" : "slant_to_ground";
+    switch (pt) {
+        case PathType::Horizontal:    return "horizontal";
+        case PathType::SlantToGround: return "slant_to_ground";
+        case PathType::Sky:           return "sky";
+    }
+    return "?";
 }
 
 // ${NAME} / ${NAME:-default} expansion over the raw config text.
@@ -140,7 +145,8 @@ Config load_config(const fs::path& path) {
     std::string pt = root.at("path_type").get<std::string>();
     if (pt == "horizontal") c.path_type = PathType::Horizontal;
     else if (pt == "slant_to_ground") c.path_type = PathType::SlantToGround;
-    else throw std::runtime_error("config: path_type must be horizontal|slant_to_ground");
+    else if (pt == "sky") c.path_type = PathType::Sky;
+    else throw std::runtime_error("config: path_type must be horizontal|slant_to_ground|sky");
 
     if (root.contains("fixed"))
         for (auto it = root["fixed"].begin(); it != root["fixed"].end(); ++it)

@@ -111,7 +111,8 @@ public:
         size_t off = tau_column_names().size() * K_;
         blocks_.push_back({RunKind::Lpath, &radiance_column_names(), off});
         off += radiance_column_names().size() * K_;
-        if (cfg.band.thermal) {
+        // sky datasets never run ldown: their lpath IS the sky-dome radiance
+        if (cfg.band.thermal && cfg.path_type != PathType::Sky) {
             blocks_.push_back({RunKind::Ldown, &radiance_column_names(), off});
             off += radiance_column_names().size() * K_;
         }

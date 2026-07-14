@@ -103,7 +103,7 @@ void merge_dataset(const Config& cfg) {
     std::vector<Block> blocks;
     blocks.push_back({"tau", tau_column_names(), {}, 0});
     blocks.push_back({"lpath", radiance_column_names(), {}, 0});
-    if (cfg.band.thermal)
+    if (cfg.band.thermal && cfg.path_type != PathType::Sky)
         blocks.push_back({"ldown", radiance_column_names(), {}, 0});
     size_t spec_floats = 0;
     for (auto& b : blocks) {

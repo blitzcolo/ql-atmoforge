@@ -31,7 +31,9 @@ const std::vector<ParamDesc>& param_table() {
         {"co2_ppmv",            false, 365.0,   100.0,  1000.0, {},                       SET(co2_ppmv),     GET(co2_ppmv)},
         {"h1_km",               false, 0.0,     0.0,    99.0,   {},                       SET(h1_km),        GET(h1_km)},
         {"range_km",            false, 1.0,     0.001,  1000.0, {},                       SET(range_km),     GET(range_km)},
-        {"view_zenith_deg",     false, 180.0,   90.0,   180.0,  {},                       SET(view_zenith_deg), GET(view_zenith_deg)},
+        // table domain spans both slant (down, >90) and sky (up, <90); the
+        // per-path-type constraint is enforced in the ParamSpace ctor below
+        {"view_zenith_deg",     false, 180.0,   0.0,    180.0,  {},                       SET(view_zenith_deg), GET(view_zenith_deg)},
         {"sun_zenith_deg",      false, 45.0,    0.0,    89.9,   {},                       SET(sun_zenith_deg), GET(sun_zenith_deg)},
         // default 90, not 0: with the default sun_zenith=45 and
         // ldown_zenith=45, rel_az=0 puts the sun exactly on the ldown LOS --
@@ -111,6 +113,33 @@ ParamSpace::ParamSpace(const Config& cfg)
     if (path_type_ == PathType::SlantToGround && is_sampled("range_km"))
         throw std::runtime_error("config: slant_to_ground derives range_km from (h1, zenith); "
                                  "do not sample it");
+    // view_zenith direction consistency: the table domain is [0,180] but each
+    // path type only owns one hemisphere
+    auto zen_bounds = [&](double& lo, double& hi) -> bool {
+        for (const auto& dim : dims_)
+            if (std::string("view_zenith_deg") == dim.d->name) {
+                if (dim.dist.kind == Dist::Values) {
+                    lo = *std::min_element(dim.dist.values.begin(), dim.dist.values.end());
+                    hi = *std::max_element(dim.dist.values.begin(), dim.dist.values.end());
+                } else { lo = dim.dist.lo; hi = dim.dist.hi; }
+                return true;
+            }
+        for (const auto& [d, v] : fixed_)
+            if (std::string("view_zenith_deg") == d->name) { lo = hi = v; return true; }
+        return false;
+    };
+    double zlo, zhi;
+    if (path_type_ == PathType::SlantToGround && zen_bounds(zlo, zhi) && zlo <= 90.0)
+        throw std::runtime_error("config: slant_to_ground requires view_zenith_deg > 90 "
+                                 "(downward)");
+    if (path_type_ == PathType::Sky) {
+        if (is_sampled("range_km"))
+            throw std::runtime_error("config: sky path goes to TOA; range_km is not a "
+                                     "degree of freedom");
+        if (zen_bounds(zlo, zhi) && zhi >= 90.0)
+            throw std::runtime_error("config: sky path requires view_zenith_deg < 90 "
+                                     "(upward); near-horizon queries clamp downstream");
+    }
     if (path_type_ == PathType::SlantToGround) {
         // h1 = 0 makes the slant path degenerate (zero length)
         for (const auto& dim : dims_)
@@ -179,6 +208,11 @@ void ParamSpace::resolve(SampleParams& p) const {
         p.view_zenith_deg = 90.0;
         p.h2_km = p.h1_km;
         // range_km stays as sampled/fixed
+    } else if (path_type_ == PathType::Sky) {
+        // upward path to TOA; no grazing clamp (the ray only ascends) and no
+        // meaningful range knob -- path length is a function of (h1, zenith)
+        p.h2_km = 100.0;
+        p.range_km = 0.0;
     } else {
         p.h2_km = 0.0;
         // A ray from altitude h1 at zenith angle theta only hits the ground if

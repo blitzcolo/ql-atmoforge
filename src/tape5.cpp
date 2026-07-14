@@ -67,6 +67,11 @@ std::string tape5_text(const SampleParams& p, const BandSpec& band,
     // T/RH/P override (JCHAR='AAH') placement is per path type:
     //  - slant: at the GROUND (z=0) only, where the path terminates -- the
     //    weather knobs describe conditions at the ground, not at the sensor.
+    //  - sky: isothermal surface layer [0, min(h1, 1 km)]. A low observer's
+    //    upward path must start inside weather-controlled boundary-layer air
+    //    (z=0 alone is invisible to it, same trap as horizontal); a high
+    //    observer's path starts above the weather layer, which is exactly
+    //    right physically -- the layer caps at 1 km and stays below.
     //  - horizontal: at BOTH z=0 and h1, as an isothermal surface layer with
     //    hydrostatic pressure at h1. Both levels are load-bearing:
     //      * z=0 alone is invisible to the path -- the h1 level inherits the
@@ -98,17 +103,21 @@ std::string tape5_text(const SampleParams& p, const BandSpec& band,
     std::sort(levels.begin(), levels.end());
 
     const bool horiz = (pt == PathType::Horizontal);
-    // barometric pressure at h1, isothermal scale height H = R*T/(M*g)
-    const double p_h1_hPa =
-        p.p_hPa * std::exp(-h1_km / (0.02927 * p.t_ground_K));
+    const bool sky = (pt == PathType::Sky);
+    // surface-layer top: horizontal rides at h1; sky caps at 1 km (a grid
+    // level, so no extra insertion needed); slant has no second level
+    const double lay_km = horiz ? h1_km : (sky ? std::min(h1_km, 1.0) : -1.0);
+    // barometric pressure at the layer top, isothermal H = R*T/(M*g)
+    const double p_lay_hPa =
+        p.p_hPa * std::exp(-lay_km / (0.02927 * p.t_ground_K));
     t += strf("%5d%5d%5d%s\n", (int)levels.size(), 0, 0, "T/P/RH OVERRIDE");
     for (size_t i = 0; i < levels.size(); ++i) {
         const bool at_ground = std::fabs(levels[i]) <= EPS;
-        const bool at_h1 = horiz && std::fabs(levels[i] - h1_km) <= EPS;
-        if (at_ground || at_h1) {
+        const bool at_lay = lay_km > 0.0 && std::fabs(levels[i] - lay_km) <= EPS;
+        if (at_ground || at_lay) {
             // ZM P T WMOL(1..3) JCHAR: 'A'=mb, 'A'=K, 'H'=WMOL(1) is RH%
             t += strf("%10.3f%10.3f%10.3f%10.3f%10.3f%10.3f%-14s %c\n",
-                      levels[i], at_ground ? p.p_hPa : p_h1_hPa,
+                      levels[i], at_ground ? p.p_hPa : p_lay_hPa,
                       p.t_ground_K, p.rh * 100.0,
                       0.0, 0.0, "AAH", ' ');
         } else {
@@ -137,6 +146,10 @@ std::string tape5_text(const SampleParams& p, const BandSpec& band,
         // ITYPE=1 homogeneous-path truth to ~1e-3. H2 is left 0 so MODTRAN
         // derives it (CASE 2B) and tau/lpath share one exact path.
         h1 = h1_km; h2 = 0.0; angle = 89.5; range = p.range_km;
+    } else if (pt == PathType::Sky) {
+        // upward view path to TOA -- the lpath of this run IS the sky-dome
+        // radiance in the (view_zenith, sun_rel_azimuth) direction
+        h1 = h1_km; h2 = 100.0; angle = p.view_zenith_deg; range = 0.0;
     } else {
         h1 = h1_km; h2 = 0.0; angle = p.view_zenith_deg; range = 0.0;
     }

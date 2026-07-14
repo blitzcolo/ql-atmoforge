@@ -47,7 +47,8 @@ static void cmd_print(const Config& cfg, uint64_t index) {
         printf("  [%2zu] %-22s %g\n", i, space.feature_names()[i].c_str(), f[i]);
 
     std::vector<RunKind> runs = {RunKind::Tau, RunKind::Lpath};
-    if (cfg.band.thermal) runs.push_back(RunKind::Ldown);
+    if (cfg.band.thermal && cfg.path_type != PathType::Sky)
+        runs.push_back(RunKind::Ldown);
     for (RunKind rk : runs) {
         printf("\n----- tape5 (%s) -----\n%s", run_kind_name(rk),
                tape5_text(p, cfg.band, cfg.path_type, rk).c_str());
